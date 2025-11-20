@@ -1,4 +1,4 @@
-name: Generate HMAC Signature for OKX
+name: Generate OKX HMAC Signature
 
 on:
   repository_dispatch:
@@ -8,7 +8,8 @@ jobs:
   generate-signature:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -16,27 +17,19 @@ jobs:
           python-version: '3.12'
 
       - name: Run HMAC Script
+        id: signature
         env:
-          PREHASH: ${{ github.event.client_payload.prehash }}  # Input del prehash desde Make
-          SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}  # Tu secret key (agrega en repo Settings > Secrets)
+          PREHASH: ${{ github.event.client_payload.prehash }}
+          SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
         run: |
           python hmac_signer.py
 
       - name: Output Signature
-        id: signature
-        run: echo "sign=$(python -c 'import hmac, base64, hashlib; print(base64.b64encode(hmac.new(\"$SECRET_KEY\".encode(), \"$PREHASH\".encode(), hashlib.sha256).digest()).decode())')" >> $GITHUB_OUTPUT
+        run: echo "sign=$(cat signature.txt)" >> $GITHUB_OUTPUT
 
-      - name: Send Response
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: 'success',
-              description: 'HMAC Generated',
-              target_url: 'https://api.github.com/repos/$$ {{ github.repository }}/actions/runs/ $${{ github.run_id }}',
-              context: 'HMAC Signature'
-            });
-            // Opcional: Webhook de respuesta a Make via HTTP POST (ver abajo)
+      - name: Send Response Webhook (Opcional para Make)
+        if: env.MAKE_WEBHOOK_URL
+        run: |
+          curl -X POST ${{ secrets.MAKE_WEBHOOK_URL }} \
+          -H "Content-Type: application/json" \
+          -d "{\"sign\": \"$(cat signature.txt)\"}"
